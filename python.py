@@ -5,25 +5,34 @@ Author: Tsunami014
 """
 from API import App, ResizableWindow, strLen, split, Popup, StaticPos
 from widgets import findLines
-from multiprocess import Process, Pipe
 import widgets as wids
+import threading
+import subprocess
 import bar
+import os
 import sys
 import time
 
 class WritablePipe:
-    def __init__(self, pipe):
-        self.pipe = pipe
-    
-    def write(self, text):
-        self.pipe.send(text)
+    def __init__(self, elm):
+        self.elm = elm
+        # create a pipe: r for reading, w for writing
+        self._r, self._w = os.pipe()
+        self._thread = threading.Thread(target=self._reader, daemon=True)
+        self._thread.start()
+
+    def _reader(self):
+        with os.fdopen(self._r, 'r', encoding='utf-8', errors='replace') as reader:
+            for line in reader:
+                self.elm.text += line
+
+    def fileno(self):
+        return self._w
 
 class SplitWindow(ResizableWindow):
     def __init__(self, x, y, *widgets):
         self.split = None
         self._grabbingBar = None
-        self.pipe = None
-        self.process = None
         super().__init__(x, y, 50, 10, *widgets)
         self.update()
     
@@ -83,16 +92,6 @@ class SplitWindow(ResizableWindow):
         else:
             self.split = min(max(self.split, 5), self.size[0]-3)
     
-    def run(self, code, pipe):
-        backup = sys.stdout
-        sys.stdout = WritablePipe(pipe)
-        try:
-            exec(code, {}, {})
-        except Exception as e:
-            print(e)
-        sys.stdout = backup
-        pipe.close()
-    
     def update(self):
         ret = super().update()
 
@@ -103,27 +102,9 @@ class SplitWindow(ResizableWindow):
             self.split = self.size[0]//2
         
         if '\x1b[15~' in self.API.events or '\x1b[[E' in self.API.events:
-            self.pipe, child_pipe = Pipe()
             self.widgets[1].text += '--------File--------\n'
-            self.process = Process(target=self.run, args=(self.widgets[0].text, child_pipe,), daemon=True)
-            self.process.start()
-        
-        if self.pipe is not None:
-            if self.pipe.poll():
-                try:
-                    self.widgets[1].text += self.pipe.recv()
-                except EOFError:
-                    self.pipe = None
-                    if self.process is not None:
-                        if self.process.is_alive():
-                            self.process.kill()
-                        self.process = None
-                    self.widgets[1].text += '--------END---------\n'
-        
-        if self.process is not None and not self.process.is_alive():
-            self.process = None
-            self.pipe = None
-            self.widgets[1].text += '--------END---------\n'
+            pipe = WritablePipe(self.widgets[1])
+            subprocess.Popen([sys.executable, "-c", self.widgets[0].text], stdout=pipe, stderr=pipe)
         
         self._fixSplit()
 
