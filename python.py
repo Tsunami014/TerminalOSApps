@@ -3,15 +3,163 @@ Name: Python
 Description: An app to make and run Python code!
 Author: Tsunami014
 """
-from API import App, ResizableWindow, strLen, split, Popup, StaticPos
+from API import App, ResizableWindow, strLen, split, StaticPos
 from widgets import findLines
 import widgets as wids
 import threading
 import subprocess
+import json
+import queue
 import bar
 import os
 import sys
 import time
+
+class Linting:
+    def __init__(self):
+        # Queues for responses (requests with an id) and notifications.
+        self.response_queue = queue.Queue()
+        self.notification_queue = queue.Queue()
+
+        self.server_proc = subprocess.Popen(
+            ["ruff", "server"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0  # unbuffered
+        )
+
+        # Start a thread to continuously read messages from the server.
+        self.reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self.reader_thread.start()
+
+        # Send initialize request.
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": None,
+                "rootUri": None,
+                "capabilities": {}
+            }
+        }
+        self._send(init_request)
+        init_response = self._wait_for_response(1)
+        # print("Initialization response:", init_response)
+
+        # Optionally, send an initialized notification as per LSP.
+        self._send({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        })
+
+    def _send(self, data):
+        """Send a JSON-RPC message to the language server."""
+        message = json.dumps(data)
+        # Frame the message with HTTP-like headers.
+        header = f"Content-Length: {len(message.encode('utf-8'))}\r\n\r\n"
+        self.server_proc.stdin.write(header.encode('utf-8'))
+        self.server_proc.stdin.write(message.encode('utf-8'))
+        self.server_proc.stdin.flush()
+
+    def _read_loop(self):
+        """Continuously read messages from the language server and distribute them."""
+        while True:
+            try:
+                # Read header line.
+                header_line = self.server_proc.stdout.readline().decode('utf-8')
+                if not header_line:
+                    break  # Process has ended.
+                if header_line.startswith("Content-Length:"):
+                    # Extract content length.
+                    try:
+                        content_length = int(header_line.strip().split(" ")[1])
+                    except (IndexError, ValueError):
+                        continue
+                    # Read the blank line.
+                    self.server_proc.stdout.readline()
+                    # Read the content.
+                    content = self.server_proc.stdout.read(content_length).decode('utf-8')
+                    message = json.loads(content)
+                    # If the message has an "id", assume it’s a response; otherwise, treat as a notification.
+                    if "id" in message:
+                        self.response_queue.put(message)
+                    elif "method" in message:
+                        self.notification_queue.put(message)
+            except Exception as e:
+                print("Error in read loop:", e)
+                break
+
+    def _wait_for_response(self, message_id, timeout=5):
+        """Wait for a response with a specific id from the server."""
+        start_time = time.time()
+        while True:
+            try:
+                response = self.response_queue.get(timeout=timeout)
+                if response.get("id") == message_id:
+                    return response
+            except queue.Empty:
+                break
+            if time.time() - start_time > timeout:
+                break
+        return None
+
+    def lint(self, code):
+        """Send the code as an in-memory document and wait for linting diagnostics."""
+        # Send a didOpen notification with the document content.
+        self._send({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": "inmemory://model/1",  # Custom URI for in-memory file.
+                    "languageId": "python",
+                    "version": 1,
+                    "text": code
+                }
+            }
+        })
+
+        # Optionally, you can send didChange notifications if you plan on incremental changes.
+
+        # Wait for a publishDiagnostics notification for this document.
+        diagnostics = None
+        start_time = time.time()
+        while time.time() - start_time < 5:  # Wait up to 5 seconds.
+            try:
+                notification = self.notification_queue.get(timeout=1)
+                if notification.get("method") == "textDocument/publishDiagnostics":
+                    params = notification.get("params", {})
+                    if params.get("uri") == "inmemory://model/1":
+                        diagnostics = params.get("diagnostics")
+                        break
+            except queue.Empty:
+                continue
+        return diagnostics
+
+    def __del__(self):
+        if self.server_proc:
+            self.server_proc.kill()
+
+class LintInBG:
+    def __init__(self, getCodeFunc):
+        self.getCodeFunc = getCodeFunc
+        self.linting = Linting()
+        self.lastlints = []
+        self.thread = threading.Thread(target=self._lint, daemon=True)
+        self.thread.start()
+    
+    def _lint(self):
+        while True:
+            code = self.getCodeFunc()
+            if code:
+                diagnostics = self.linting.lint(code)
+                self.lastlints = diagnostics or []
+            else:
+                self.lastlints = []
+            time.sleep(0.5)
 
 class WritablePipe:
     def __init__(self, elm):
@@ -124,9 +272,41 @@ class SplitWindow(ResizableWindow):
             self._grabbingBar = None
         return ret
 
-class ExpandableTextInput(wids.TextInput):
+class LintingTextInput(wids.TextInput):
+    def __init__(self, pos, max_width=None, max_height=None, placeholder='', start=''):
+        super().__init__(pos, max_width, max_height, placeholder, start)
+        self.linter = LintInBG(lambda: self.text)
+    
+    @property
+    def lints(self):
+        """A list of linting diagnostics in the format:
+        
+        `[{'start': character, 'end': character, 'message': str, 'severity': int}]`
+        """
+        lines = self.text.split('\n')
+        out = []
+        for lnt in self.linter.lastlints:
+            if 'range' in lnt:
+                start = sum([(len(i)+1) for i in lines[:lnt['range']['start']['line']]] or [0])+lnt['range']['start']['character']
+                end = sum([(len(i)+1) for i in lines[:lnt['range']['end']['line']]] or [0])+lnt['range']['end']['character']
+            else:
+                start = sum([(len(i)+1) for i in lines[:lnt['start']['line']]] or [0])+lnt['start']['character']
+                end = sum([(len(i)+1) for i in lines[:lnt['end']['line']]] or [0])+lnt['end']['character']
+            if 'code' in lnt:
+                msg = lnt['code'] + ': ' + lnt['message']
+            else:
+                msg = lnt['message']
+            out.append({
+                'start': start,
+                'end': end,
+                'message': msg,
+                'severity': lnt['severity']
+            })
+        return out
+    
     def draw(self):
         if self.text == '':
+            lnts = []
             if self.placeholder != '':
                 lines = findLines(self.placeholder, self.max_width)
                 lines = [f'\033[90m{i}\033[39m' for i in lines]
@@ -136,9 +316,38 @@ class ExpandableTextInput(wids.TextInput):
                 else:
                     lines = ['']
         else:
-            lines = findLines(self.text, self.max_width)
+            lnts = self.lints
+            txt = self.text
+            end = '\033[39;4m'
+            for lnt in lnts:
+                if lnt['severity'] == 1:
+                    col = '\033[91;24m'
+                elif lnt['severity'] == 2:
+                    col = '\033[93;24m'
+                else:
+                    col = '\033[32;24m'
+                spl = split(txt)
+                idx = 0
+                i = 0
+                realIdx = 0
+                while idx < len(spl) and realIdx < lnt['start']:
+                    if spl[idx][0] != '\033':
+                        realIdx += 1
+                    i += len(spl[idx])
+                    idx += 1
+                startIdx = i
+                while idx < len(spl) and realIdx < lnt['end']:
+                    if spl[idx][0] != '\033':
+                        realIdx += 1
+                    i += len(spl[idx])
+                    idx += 1
+                if idx == len(spl):
+                    i += 1
+                    txt += '¶'
+                txt = txt[:startIdx]+col+txt[startIdx:i].replace(' ', '·')+end+txt[i:]
+            lines = findLines(txt, self.max_width)
         self.width = self.max_width or max(strLen(i) for i in lines)+1
-        lines = [f'\033[4m{i + ' '*(self.width-len(i))}\033[24m' for i in lines]
+        lines = [f'\033[4m{i + ' '*(self.width-strLen(i))}\033[24m' for i in lines]
         
         self.height = len(lines)
         if self.max_height:
@@ -179,7 +388,7 @@ class Python(App):
     
     def init_widgets(self):
         return [
-            ExpandableTextInput(StaticPos(0, 0)),
+            LintingTextInput(StaticPos(0, 0)),
             wids.Text(StaticPos(1, 0), '')
         ]
 

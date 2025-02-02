@@ -24,6 +24,13 @@ All values in that are optional, and you can have other lines in it too. These v
 
 # Apps list
 - [Test](#test)
+- [python](#python)
 
 ## Test
-This is a test app that does nothing.
+This is a test app that does nothing special.
+
+## python
+This is a python interpreter that can run python code.
+
+### Pre-requisites
+- Ruff: installable via `pip install ruff` or another method from [it's website](https://docs.astral.sh/ruff/installation/)
