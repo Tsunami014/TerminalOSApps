@@ -34,7 +34,6 @@ class SplitWindow(ResizableWindow):
         self.split = None
         self._grabbingBar = None
         super().__init__(x, y, 50, 10, *widgets)
-        self.update()
     
     def draw(self):
         self.Screen.Clear()
@@ -99,7 +98,10 @@ class SplitWindow(ResizableWindow):
         self.size = [max(self.size[0], 7), max(self.size[1], 3)]
 
         if self.split is None:
-            self.split = self.size[0]//2
+            if self.isFullscreen:
+                self.split = self.API.get_terminal_size()[0]//2-1
+            else:
+                self.split = self.size[0]//2
         
         if '\x1b[15~' in self.API.events or '\x1b[[E' in self.API.events:
             self.widgets[1].text += '--------File--------\n'
@@ -171,6 +173,8 @@ class Python(App):
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls, *args, **kwargs)
         inst.Win = SplitWindow(0, 0, *inst.init_widgets())
+        inst.Win.fullscreen()
+        inst.Win.update()
         return inst
     
     def init_widgets(self):
