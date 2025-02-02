@@ -4,10 +4,12 @@ Description: An app to make and run Python code!
 Author: Tsunami014
 """
 from API import App, ResizableWindow, strLen, split, Popup, StaticPos
+from widgets import findLines
 from multiprocess import Process, Pipe
 import widgets as wids
 import bar
 import sys
+import time
 
 class WritablePipe:
     def __init__(self, pipe):
@@ -31,7 +33,7 @@ class SplitWindow(ResizableWindow):
             if self.split is not None:
                 pos = widget._pos
                 if pos.x == 0:
-                    widget.max_width = self.split-1
+                    widget.max_width = self.split-2
                 else:
                     pos.x = self.split
                     widget.max_width = self.width-self.split-2
@@ -116,12 +118,12 @@ class SplitWindow(ResizableWindow):
                         if self.process.is_alive():
                             self.process.kill()
                         self.process = None
-                    self.widgets[1].text += '--------END--------\n'
+                    self.widgets[1].text += '--------END---------\n'
         
         if self.process is not None and not self.process.is_alive():
             self.process = None
             self.pipe = None
-            self.widgets[1].text += '--------END--------\n'
+            self.widgets[1].text += '--------END---------\n'
         
         self._fixSplit()
 
@@ -139,6 +141,51 @@ class SplitWindow(ResizableWindow):
             self._grabbingBar = None
         return ret
 
+class ExpandableTextInput(wids.TextInput):
+    def draw(self):
+        if self.text == '':
+            if self.placeholder != '':
+                lines = findLines(self.placeholder, self.max_width)
+                lines = [f'\033[90m{i}\033[39m' for i in lines]
+            else:
+                if self.max_width is not None:
+                    lines = [' '*self.max_width]
+                else:
+                    lines = ['']
+        else:
+            lines = findLines(self.text, self.max_width)
+        self.width = self.max_width or max(strLen(i) for i in lines)+1
+        lines = [f'\033[4m{i + ' '*(self.width-len(i))}\033[24m' for i in lines]
+        
+        self.height = len(lines)
+        if self.max_height:
+            self.height = min(self.height, self.max_height)
+
+        x, y = self.pos
+        
+        for idx, line in enumerate(lines[:self.height]):
+            self._Write(x, y+idx, line)
+        
+
+        if self.cursor is not None:
+            if self.text == '' and self.placeholder != '':
+                newchar = '\033[39m|\033[90m'
+            else:
+                newchar = '|'
+            self.fix_cursor(lines)
+            chars = split(self._Screen.Get(x+self.cursor[0], y+self.cursor[1]))
+            if round(time.time()*3)%3 != 0:
+                for idx in range(len(chars)):
+                    if chars[idx][0] != '\033':
+                        chars[idx] = newchar
+                        break
+                else:
+                    chars = [newchar]+chars
+            else:
+                if all(i[0] == '\033' for i in chars):
+                    chars = [' ']+chars
+            self._Write(x+self.cursor[0], y+self.cursor[1], *chars)
+
 class Python(App):
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls, *args, **kwargs)
@@ -147,7 +194,7 @@ class Python(App):
     
     def init_widgets(self):
         return [
-            wids.TextInput(StaticPos(0, 0), placeholder=' '),
+            ExpandableTextInput(StaticPos(0, 0)),
             wids.Text(StaticPos(1, 0), '')
         ]
 
