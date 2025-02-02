@@ -104,7 +104,7 @@ class SplitWindow(ResizableWindow):
                 self.split = self.size[0]//2
         
         if '\x1b[15~' in self.API.events or '\x1b[[E' in self.API.events:
-            self.widgets[1].text += '--------File--------\n'
+            self.widgets[1].text = '--------File--------\n'
             pipe = WritablePipe(self.widgets[1])
             subprocess.Popen([sys.executable, "-c", self.widgets[0].text], stdout=pipe, stderr=pipe)
         
