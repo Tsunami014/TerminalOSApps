@@ -6,7 +6,7 @@ They are all avaliable in it's software manager.
 You are welcome to PR in your own apps!
 
 # To make an app
-Make a python file that has a unique name and make sure it has things like `bar.register` or it won't do anything. Also, at the start of the file, have a docstring with the format:
+Make a python file that has a unique name and make sure it has things like `bar.register` or it won't do anything. Also, at the start of the file, you *should* have a docstring with the format:
 ```python
 """
 Name: <name>
