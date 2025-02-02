@@ -18,4 +18,5 @@ class Test(App):
             wids.TextInput(RelativePos(1, 0, len('Hello, World! '), 0), placeholder='Type here: ')
         ]
 
-bar.BarApp(Test)
+def load():
+    bar.BarApp(Test)

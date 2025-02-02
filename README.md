@@ -20,6 +20,8 @@ License: <license>
 ```
 All values in that are optional, and you can have other lines in it too. These values are what the user sees when installing.
 
+*BE SURE TO ADD IN A `def load():` FUNCTION THAT RUNS THE APP, OTHERWISE YOUR APP WILL NOT WORK.*
+
 # Apps list
 - [Test](#test)
 
