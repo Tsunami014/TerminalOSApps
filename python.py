@@ -352,7 +352,7 @@ class LintingTextInput(wids.TextInput):
                 elif lnt['severity'] == 2:
                     col = '\033[93;24m'
                 else:
-                    col = '\033[32;24m'
+                    raise ValueError(f'Unknown severity: {lnt["severity"]} for error {lnt}')
                 spl = split(txt)
                 idx = 0
                 i = 0
@@ -360,6 +360,9 @@ class LintingTextInput(wids.TextInput):
                 while idx < len(spl) and realIdx < lnt['start']:
                     if spl[idx][0] != '\033':
                         realIdx += 1
+                    i += len(spl[idx])
+                    idx += 1
+                while idx < len(spl) and spl[idx][0] == '\033':
                     i += len(spl[idx])
                     idx += 1
                 startIdx = i
@@ -439,10 +442,19 @@ class LintingTextInput(wids.TextInput):
                 if relx <= len(paragraph):
                     endidx += relx
                     problems = [i for i in lnts if i['start'] <= endidx < i['end'] or (i['start'] == i['end'] == endidx)]
-                    if problems:
-                        lines = findLines("\n".join(i['message'] for i in problems), self.max_width-relx)
-                        for idx, line in enumerate(lines):
-                            self._Write(mp[0]-1, mp[1]+idx, line)
+                    idx = 0
+                    for prob in problems:
+                        if prob['severity'] == 1:
+                            col = '41'
+                        elif prob['severity'] == 2:
+                            col = '43'
+                        else:
+                            raise ValueError(f'Unknown severity: {prob["severity"]} for error {prob}')
+                        lines = findLines(prob['message'], self.max_width-relx)
+                        for line in lines:
+                            end = ';4' if rely+idx+1 < self.height else ''
+                            self._Write(mp[0]-1, mp[1]+idx, '\033[', col, ';24;39m', line, '\033[49', end, 'm')
+                            idx += 1
 
 class Python(App):
     def __new__(cls, *args, **kwargs):
