@@ -334,13 +334,13 @@ class LintingTextInput(wids.TextInput):
                 ], 'word'),
                 ('92', '0123456789"\'', 'all'),
                 ('35', '+-/*@=><%&|^~', 'all'),
-                ('36', '.,:;()[]{}', 'all'),
+                ('37', '.,:;()[]{}', 'all'),
             ]:
                 for l in lets:
                     if type == 'word':
-                        txt = regex.sub('\x1B[@-_][0-?]*[ -\\/]*[@-~](*SKIP)(*FAIL)|\\b'+regex.escape(l)+'\\b', '\033['+col+'m'+l+'\033[39m', txt)
+                        txt = regex.sub('\x1B[@-_][0-?]*[ -\\/]*[@-~](*SKIP)(*FAIL)|\\b'+regex.escape(l)+'\\b', '\033['+col+';24m'+l+'\033[39;4m', txt)
                     else:
-                        txt = regex.sub('\x1B[@-_][0-?]*[ -\\/]*[@-~](*SKIP)(*FAIL)|'+regex.escape(l), '\033['+col+'m'+l+'\033[39m', txt)
+                        txt = regex.sub('\x1B[@-_][0-?]*[ -\\/]*[@-~](*SKIP)(*FAIL)|'+regex.escape(l), '\033['+col+';24m'+l+'\033[39;4m', txt)
             
             txt = regex.sub(r'#.*', '\033[90m\\g<0>\033[39m', txt)
 
@@ -384,7 +384,6 @@ class LintingTextInput(wids.TextInput):
         
         for idx, line in enumerate(lines[:self.height]):
             self._Write(x, y+idx, line)
-        
 
         if self.cursor is not None:
             if self.text == '' and self.placeholder != '':
@@ -404,6 +403,46 @@ class LintingTextInput(wids.TextInput):
                 if all(i[0] == '\033' for i in chars):
                     chars = [' ']+chars
             self._Write(x+self.cursor[0], y+self.cursor[1], *chars)
+        
+        if self.API.RMB:
+            mp = self.API.Mouse
+            if mp[0] >= x and mp[0] < x+self.width and mp[1] >= y and mp[1] <= y+self.height:
+                relx, rely = mp[0]-x-1, mp[1]-y-1
+                endidx = 0
+                y = 0
+                if self.max_width is not None:
+                    paragraph = ''
+                    for paragraph in self.text.split('\n'):
+                        if y == rely:
+                            break
+                        while len(paragraph) > self.max_width:
+                            space_index = paragraph.rfind(' ', 0, self.max_width)
+                            if space_index == -1:
+                                space_index = self.max_width
+                            endidx += len(paragraph[:space_index])
+                            y += 1
+                            paragraph = paragraph[space_index:].lstrip()
+                            if y == rely:
+                                break
+                        if y == rely:
+                            break
+                        endidx += len(paragraph)+1
+                        y += 1
+                else:
+                    paragraph = ''
+                    for paragraph in self.text.split('\n'):
+                        if y == rely:
+                            break
+                        endidx += len(paragraph)+1
+                        y += 1
+                
+                if relx <= len(paragraph):
+                    endidx += relx
+                    problems = [i for i in lnts if i['start'] <= endidx < i['end']]
+                    if problems:
+                        lines = findLines("\n".join(i['message'] for i in problems), self.max_width-relx)
+                        for idx, line in enumerate(lines):
+                            self._Write(mp[0]-1, mp[1]+idx, line)
 
 class Python(App):
     def __new__(cls, *args, **kwargs):
