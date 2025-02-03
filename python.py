@@ -14,6 +14,7 @@ import bar
 import os
 import sys
 import time
+import regex
 
 class Linting:
     def __init__(self):
@@ -318,7 +319,33 @@ class LintingTextInput(wids.TextInput):
         else:
             lnts = self.lints
             txt = self.text
+            for col, lets, type in [
+                ('34', [
+                    'if', 'elif', 'else', 'for', 'while', 'with', 'def', 'class', 'return', 'break', 'continue', 'pass', 'raise', 'import', 'from', 'as', 'in',
+                    'and', 'or', 'not', 'is', 'del', 'assert', 'global', 'nonlocal', 'lambda', 'yield', 'try', 'except', 'finally', 'raise', 'True', 'False', 'None'
+                ], 'word'),
+                ('33', [
+                    'print', 'input', 'open', 'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'reversed', 'sum', 'min', 'max', 'any', 'all', 'len', 'abs', 
+                    'round', 'pow', 'divmod', 'int', 'float', 'str', 'list', 'tuple', 'dict', 'set', 'frozenset', 'bool', 'type', 'range', 'slice', 'complex', 'bytes', 
+                    'bytearray', 'memoryview', 'object', 'super', 'staticmethod', 'classmethod', 'property', 'staticmethod', 'classmethod', 'property', 'iter', 'next',
+                    'hasattr', 'getattr', 'setattr', 'delattr', 'vars', 'dir', 'locals', 'globals', 'exec', 'eval', 'compile', 'open', 'isinstance', 'issubclass', 'callable',
+                    'id', 'hash', 'repr', 'chr', 'ord', 'bin', 'oct', 'hex', 'format', 'ascii', 'repr', 'str', 'bytes', 'bytearray', 'memoryview', 'complex', 'int', 'float',
+                    'list', 'tuple', 'dict', 'set', 'frozenset', 'bool', 'type', 'range', 'slice', 'object', 'property', 'staticmethod', 'classmethod', 'super', 'iter', 'next',
+                ], 'word'),
+                ('92', '0123456789"\'', 'all'),
+                ('35', '+-/*@=><%&|^~', 'all'),
+                ('36', '.,:;()[]{}', 'all'),
+            ]:
+                for l in lets:
+                    if type == 'word':
+                        txt = regex.sub('\x1B[@-_][0-?]*[ -\\/]*[@-~](*SKIP)(*FAIL)|\\b'+regex.escape(l)+'\\b', '\033['+col+'m'+l+'\033[39m', txt)
+                    else:
+                        txt = regex.sub('\x1B[@-_][0-?]*[ -\\/]*[@-~](*SKIP)(*FAIL)|'+regex.escape(l), '\033['+col+'m'+l+'\033[39m', txt)
+            
+            txt = regex.sub(r'#.*', '\033[90m\\g<0>\033[39m', txt)
+
             end = '\033[39;4m'
+            
             for lnt in lnts:
                 if lnt['severity'] == 1:
                     col = '\033[91;24m'
@@ -341,10 +368,10 @@ class LintingTextInput(wids.TextInput):
                         realIdx += 1
                     i += len(spl[idx])
                     idx += 1
-                if idx == len(spl):
-                    i += 1
-                    txt += '¶'
-                txt = txt[:startIdx]+col+txt[startIdx:i].replace(' ', '·')+end+txt[i:]
+                mid = txt[startIdx:i].replace(' ', '·')
+                if mid == '':
+                    mid = '¶'
+                txt = txt[:startIdx]+col+mid+end+txt[i:]
             lines = findLines(txt, self.max_width)
         self.width = self.max_width or max(strLen(i) for i in lines)+1
         lines = [f'\033[4m{i + ' '*(self.width-strLen(i))}\033[24m' for i in lines]
