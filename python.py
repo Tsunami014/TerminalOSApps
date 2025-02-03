@@ -438,7 +438,7 @@ class LintingTextInput(wids.TextInput):
                 
                 if relx <= len(paragraph):
                     endidx += relx
-                    problems = [i for i in lnts if i['start'] <= endidx < i['end']]
+                    problems = [i for i in lnts if i['start'] <= endidx < i['end'] or (i['start'] == i['end'] == endidx)]
                     if problems:
                         lines = findLines("\n".join(i['message'] for i in problems), self.max_width-relx)
                         for idx, line in enumerate(lines):
