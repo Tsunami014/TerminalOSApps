@@ -372,8 +372,8 @@ class LintingTextInput(wids.TextInput):
                     i += len(spl[idx])
                     idx += 1
                 mid = txt[startIdx:i].replace(' ', '·')
-                if mid == '':
-                    mid = '¶'
+                if mid.strip('\n') == '':
+                    mid = '¶'+mid
                 txt = txt[:startIdx]+col+mid+end+txt[i:]
             lines = findLines(txt, self.max_width)
         self.width = self.max_width or max(strLen(i) for i in lines)+1
